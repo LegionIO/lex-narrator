@@ -1,10 +1,12 @@
 # lex-narrator
 
-Real-time cognitive narrative stream for the LegionIO brain-modeled cognitive architecture.
+Real-time cognitive narrative stream for the LegionIO cognitive architecture. Translates the agent's internal cognitive state into human-readable prose each tick.
 
 ## What It Does
 
-Translates the agent's internal cognitive state into human-readable prose. Each tick, it reads emotional state, active curiosity wonders, prediction confidence, attention focus, memory health, and reflection status — then generates a timestamped narrative entry describing what the agent is experiencing.
+Each tick, reads emotional state, active curiosity wonders, prediction confidence, attention focus, memory health, and reflection status from `tick_results` and `cognitive_state`, then generates a timestamped narrative entry. Entries are appended to a rolling journal (capped at 500). Provides mood classification, journal queries, and statistics.
+
+## Usage
 
 ```ruby
 client = Legion::Extensions::Narrator::Client.new
@@ -22,25 +24,27 @@ entry = client.narrate(
 )
 # => { narrative: "3 signals in spotlight focus, 5 in peripheral awareness. I am highly alert
 #      and calm and steady. I am deeply curious, with 4 open questions. Most pressing:
-#      \"Why are infrastructure traces sparse?\". ...", mood: :energized }
+#      \"Why are infrastructure traces sparse?\"...", mood: :energized }
 
-# Review recent narrative
+# Query journal
 client.recent_entries(limit: 5)
+client.entries_since(since: Time.now - 3600)
+client.mood_history(mood: :anxious, limit: 10)
 client.current_narrative
 client.narrator_stats
 ```
 
 ## Mood Classification
 
-| Mood | Valence | Arousal |
-|------|---------|---------|
-| `:energized` | > 0.3 | > 0.5 |
-| `:content` | > 0.3 | <= 0.5 |
-| `:anxious` | < -0.3 | > 0.5 |
-| `:subdued` | < -0.3 | <= 0.5 |
-| `:alert` | neutral | > 0.7 |
-| `:dormant` | neutral | < 0.2 |
-| `:neutral` | neutral | moderate |
+| Mood | Condition |
+|------|-----------|
+| `:energized` | valence > 0.3, arousal > 0.5 |
+| `:content` | valence > 0.3, arousal <= 0.5 |
+| `:anxious` | valence < -0.3, arousal > 0.5 |
+| `:subdued` | valence < -0.3, arousal <= 0.5 |
+| `:alert` | neutral valence, arousal > 0.7 |
+| `:dormant` | neutral valence, arousal < 0.2 |
+| `:neutral` | neutral valence, moderate arousal |
 
 ## Development
 
