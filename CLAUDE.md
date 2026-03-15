@@ -29,6 +29,8 @@ lib/legion/extensions/narrator/
     prose.rb         # Prose module_function — sentence generators per cognitive domain
     synthesizer.rb   # Synthesizer module_function — assembles sections from tick_results + cognitive_state
     journal.rb       # Journal class — rolling entry store
+  helpers/
+    llm_enhancer.rb  # LlmEnhancer module — optional LLM narrative generation
   runners/
     narrator.rb      # Runner module — narrate, recent_entries, entries_since, mood_history, etc.
 spec/
@@ -79,9 +81,27 @@ Stateless sentence generators:
 ### `Helpers::Journal`
 Rolling store capped at `MAX_JOURNAL_SIZE`. `append(entry)` adds to end, shifts oldest when full. `recent(limit:)`, `since(timestamp)`, `by_mood(mood)`, `stats` (mood counts, oldest/newest timestamps).
 
+## LLM Enhancement
+
+`Helpers::LlmEnhancer` provides optional LLM-generated narrative via `legion-llm`.
+
+**System prompt theme**: Internal narrator for an autonomous AI agent. Translates raw cognitive metrics into flowing first-person introspection (3-5 sentences, present tense, varied structure).
+
+| Method | Parameters | Returns |
+|---|---|---|
+| `available?` | — | `true` when `Legion::LLM.started?` |
+| `narrate` | `sections_data:` | LLM-generated narrative string, or `nil` on failure |
+
+`sections_data` is a hash of six cognitive domains (emotion, curiosity, prediction, memory, attention, reflection) assembled by the runner from `tick_results` and `cognitive_state`.
+
+**Fallback**: When LLM is unavailable or returns nil, the existing `Helpers::Prose` label-based sentence concatenation pipeline is used unchanged.
+
+**Source indicator**: `narrate` runner returns `source: :llm` in the result hash when LLM is used, `source:` key absent when falling back to `Prose`.
+
 ## Integration Points
 
 - `narrate` consumes `tick_results` directly from `lex-tick` output
+- `legion-llm` (optional): `LlmEnhancer` calls `Legion::LLM.chat` when started; fully skipped otherwise
 - Emotion section reads from `tick_results[:emotional_evaluation]` (produced by `lex-emotion`)
 - Curiosity section reads from `cognitive_state[:curiosity]` and `tick_results[:working_memory_integration]`
 - Prediction section reads from `tick_results[:prediction_engine]` (produced by `lex-prediction`)
@@ -95,3 +115,5 @@ Rolling store capped at `MAX_JOURNAL_SIZE`. `append(entry)` adds to end, shifts 
 - `journal` in the runner is lazily memoized as `@journal` per runner instance
 - Mood classification priority: energized/content (positive valence) > anxious/subdued (negative) > alert (high arousal) > dormant (low arousal) > neutral
 - `gut_phrase` inspects `gut[:signal]` or `gut[:gut_signal]`; returns nil if absent or in neutral range
+- LLM enhancement is always optional: `LlmEnhancer` rescues all `StandardError`, logs a warn, and returns nil — Prose fallback activates automatically
+- `LlmEnhancer.available?` also rescues `StandardError` (returns false), so missing `legion-llm` gem never raises
