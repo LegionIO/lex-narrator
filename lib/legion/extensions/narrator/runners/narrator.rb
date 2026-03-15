@@ -10,8 +10,25 @@ module Legion
 
           def narrate(tick_results: {}, cognitive_state: {}, **)
             entry = Helpers::Synthesizer.narrate(tick_results: tick_results, cognitive_state: cognitive_state)
-            journal.append(entry)
 
+            if Helpers::LlmEnhancer.available?
+              sections_data = build_llm_sections_data(tick_results, cognitive_state, entry)
+              llm_result = Helpers::LlmEnhancer.narrate(sections_data: sections_data)
+              if llm_result
+                entry = entry.merge(narrative: llm_result, source: :llm)
+                journal.append(entry)
+                Legion::Logging.debug "[narrator] mood=#{entry[:mood]} source=llm sections=#{entry[:sections].keys.size}"
+                return {
+                  narrative: entry[:narrative],
+                  mood:      entry[:mood],
+                  timestamp: entry[:timestamp],
+                  sections:  entry[:sections],
+                  source:    :llm
+                }
+              end
+            end
+
+            journal.append(entry)
             Legion::Logging.debug "[narrator] mood=#{entry[:mood]} sections=#{entry[:sections].keys.size}"
 
             {
@@ -82,6 +99,82 @@ module Legion
 
           def journal
             @journal ||= Helpers::Journal.new
+          end
+
+          def build_llm_sections_data(tick_results, cognitive_state, entry)
+            {
+              emotion:    llm_emotion_data(tick_results, cognitive_state),
+              curiosity:  llm_curiosity_data(tick_results, cognitive_state),
+              prediction: llm_prediction_data(tick_results, cognitive_state),
+              memory:     llm_memory_data(tick_results, cognitive_state),
+              attention:  llm_attention_data(tick_results, cognitive_state),
+              reflection: llm_reflection_data(cognitive_state),
+              mood:       entry[:mood]
+            }
+          end
+
+          def llm_emotion_data(tick_results, cognitive_state)
+            v = tick_results[:emotional_evaluation] || {}
+            g = tick_results[:gut_instinct] || cognitive_state[:gut] || {}
+            {
+              valence: v[:valence] || cognitive_state.dig(:emotion, :valence) || 0.0,
+              arousal: v[:arousal] || cognitive_state.dig(:emotion, :arousal) || 0.5,
+              gut:     g[:signal] || g[:gut_signal]
+            }
+          end
+
+          def llm_curiosity_data(tick_results, cognitive_state)
+            c = cognitive_state[:curiosity] || {}
+            w = tick_results[:working_memory_integration] || {}
+            {
+              intensity:    c[:intensity] || w[:curiosity_intensity] || 0.0,
+              wonder_count: c[:active_count] || w[:active_wonders] || 0,
+              top_wonder:   c[:top_question] || w[:top_question]
+            }
+          end
+
+          def llm_prediction_data(tick_results, cognitive_state)
+            p = tick_results[:prediction_engine] || {}
+            s = cognitive_state[:prediction] || {}
+            {
+              confidence: p[:confidence] || s[:confidence] || 0.0,
+              pending:    s[:pending_count] || 0,
+              mode:       p[:mode] || s[:mode]
+            }
+          end
+
+          def llm_memory_data(tick_results, cognitive_state)
+            m = cognitive_state[:memory] || {}
+            c = tick_results[:memory_consolidation] || {}
+            {
+              trace_count: m[:trace_count] || c[:remaining] || 0,
+              health:      m[:health] || 1.0
+            }
+          end
+
+          def llm_attention_data(tick_results, cognitive_state)
+            a = tick_results[:sensory_processing] || {}
+            f = cognitive_state[:attention_status] || {}
+            {
+              spotlight:       a[:spotlight] || 0,
+              peripheral:      a[:peripheral] || 0,
+              focused_domains: extract_focused_domains_for_llm(f)
+            }
+          end
+
+          def llm_reflection_data(cognitive_state)
+            r = cognitive_state[:reflection] || {}
+            {
+              health:              r[:health] || 1.0,
+              pending_adaptations: r[:pending_adaptations] || 0
+            }
+          end
+
+          def extract_focused_domains_for_llm(focus)
+            manual = focus[:manual_focus]
+            return [] unless manual.is_a?(Hash)
+
+            manual.keys.map(&:to_s)
           end
 
           def format_entry(entry)
